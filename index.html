@@ -11,10 +11,12 @@
     .fail{border-color:#5a2630;background:#1a1012}
     h1{margin:0 0 12px;font-size:22px}
     p{margin:10px 0 0 0;line-height:1.6}
-    .meta{opacity:.7;font-size:13px;margin-top:10px;word-break:break-all}
+    .meta{opacity:.7;font-size:13px;margin-top:10px;word-break:break-all;white-space:pre-wrap}
     .hide{display:none}
     button{background:#2e2ee6;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;margin-top:16px}
     .tag{display:inline-block;background:#22223a;border:1px solid #343456;border-radius:999px;padding:4px 10px;margin:6px 6px 0 0;font-size:12px;opacity:.9}
+    .tag.positive{border-color:#2f6b2f;background:#142314;color:#b9f0b9}
+    .tag.negative{border-color:#70303a;background:#2e1217;color:#f3c5cb}
   </style>
 </head>
 <body>
@@ -39,58 +41,202 @@
       try{
         if(navigator.userAgentData&&navigator.userAgentData.getHighEntropyValues){
           const r=await navigator.userAgentData.getHighEntropyValues(["architecture","bitness","platform","platformVersion","fullVersionList","model"]);
-          return r
+          if(r&&r.fullVersionList&&!Array.isArray(r.fullVersionList)){
+            r.fullVersionList=[];
+          }
+          return r;
         }
       }catch(e){}
-      return null
+      return null;
     }
-    function getWebGLRenderer(){
+
+    function getWebGLInfo(){
       try{
-        const c=document.createElement("canvas")
-        const gl=c.getContext("webgl")||c.getContext("experimental-webgl")
-        if(!gl) return null
-        const ext=gl.getExtension("WEBGL_debug_renderer_info")
-        if(ext){
-          return gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+        const canvas=document.createElement("canvas");
+        const gl=canvas.getContext("webgl")||canvas.getContext("experimental-webgl");
+        if(!gl) return {vendor:"",renderer:""};
+        const debugInfo=gl.getExtension("WEBGL_debug_renderer_info");
+        if(debugInfo){
+          const vendor=gl.getParameter(debugInfo.UNMASKED_VENDOR_WEBGL)||"";
+          const renderer=gl.getParameter(debugInfo.UNMASKED_RENDERER_WEBGL)||"";
+          return {vendor,renderer};
         }
-        return gl.getParameter(gl.RENDERER)
-      }catch(e){return null}
-    }
-    function tag(el,txt){const s=document.createElement("span");s.className="tag";s.textContent=txt;el.appendChild(s)}
-    (async ()=>{
-      const pass=document.getElementById("pass")
-      const fail=document.getElementById("fail")
-      const passTags=document.getElementById("passTags")
-      const failTags=document.getElementById("failTags")
-      const passMeta=document.getElementById("passMeta")
-      const failMeta=document.getElementById("failMeta")
-
-      const hints=await getUAHints()
-      const arch=(hints&&hints.architecture)||""
-      const bitness=(hints&&hints.bitness)||""
-      const platform=(hints&&hints.platform)||""
-      const uastr=(navigator.userAgent||"")
-      const renderer=getWebGLRenderer()||""
-
-      let likelyIntel=false
-      const archIsX86=/^x86|x64|amd64|ia32$/i.test(arch)||/Win64|WOW64|x86_64|x64/i.test(uastr)
-      const rendererHasIntel=/intel/i.test(renderer)
-      if(archIsX86&&rendererHasIntel) likelyIntel=true
-
-      const meta=`UA: ${uastr}\nCH.arch: ${arch}\nCH.bits: ${bitness}\nCH.platform: ${platform}\nWebGL: ${renderer}`
-      if(likelyIntel){
-        tag(passTags,arch||"arch:unknown")
-        tag(passTags,bitness||"bits:?")
-        if(renderer) tag(passTags,renderer.slice(0,32))
-        passMeta.textContent=meta
-        pass.classList.remove("hide")
-      }else{
-        if(arch) tag(failTags,"arch:"+arch)
-        if(renderer) tag(failTags,renderer.slice(0,32))
-        failMeta.textContent=meta
-        fail.classList.remove("hide")
+        return {
+          vendor:gl.getParameter(gl.VENDOR)||"",
+          renderer:gl.getParameter(gl.RENDERER)||""
+        };
+      }catch(e){
+        return {vendor:"",renderer:""};
       }
-    })()
+    }
+
+    function tag(el,txt,variant){
+      const s=document.createElement("span");
+      s.className="tag"+(variant?" "+variant:"");
+      s.textContent=txt;
+      el.appendChild(s);
+    }
+
+    function shortText(str,limit=38){
+      if(!str) return "";
+      return str.length>limit?str.slice(0,limit-1)+"…":str;
+    }
+
+    (async ()=>{
+      const pass=document.getElementById("pass");
+      const fail=document.getElementById("fail");
+      const passTags=document.getElementById("passTags");
+      const failTags=document.getElementById("failTags");
+      const passMeta=document.getElementById("passMeta");
+      const failMeta=document.getElementById("failMeta");
+
+      const hints=await getUAHints();
+      const arch=hints&&hints.architecture||"";
+      const bitness=hints&&hints.bitness||"";
+      const platformHint=hints&&hints.platform||"";
+      const platformVersion=hints&&hints.platformVersion||"";
+      const model=hints&&hints.model||"";
+      const fullVersionList=hints&&Array.isArray(hints.fullVersionList)?hints.fullVersionList:[];
+      const brandTokens=fullVersionList.map(item=>(item.brand||"?")+" "+(item.version||"")).map(str=>str.trim()).filter(Boolean);
+
+      const uastr=navigator.userAgent||"";
+      const legacyPlatform=navigator.platform||"";
+      const oscpu=navigator.oscpu||"";
+      const vendorNav=navigator.vendor||"";
+      const hardwareConcurrency=Math.max(0,navigator.hardwareConcurrency||0);
+      const deviceMemoryRaw=navigator.deviceMemory;
+      const deviceMemory=typeof deviceMemoryRaw==="number"&&deviceMemoryRaw>0?deviceMemoryRaw:0;
+      const maxTouchPoints=Math.max(0,navigator.maxTouchPoints||0);
+      const languages=Array.isArray(navigator.languages)?navigator.languages.join(", "):"";
+      const pluginCount=navigator.plugins&&navigator.plugins.length||0;
+
+      const glInfo=getWebGLInfo();
+      const vendor=glInfo.vendor||"";
+      const renderer=glInfo.renderer||"";
+
+      const combinedText=[uastr,platformHint,legacyPlatform,oscpu,model,vendor,renderer,vendorNav].join(" ");
+      const combinedLower=combinedText.toLowerCase();
+
+      const archIsX86=/^x(86|64)|amd64|ia32$/i.test(arch)||/win64|wow64|x86_64|x64|amd64|ia32/.test(uastr.toLowerCase());
+      const archFromPlatform=/x86|x64|amd64|win32|win64|intel|macintel/.test(legacyPlatform.toLowerCase());
+      const rendererHasIntel=/intel/.test(renderer.toLowerCase());
+      const vendorHasIntel=/intel/.test(vendor.toLowerCase());
+      const gpuLooksIntel=vendorHasIntel||rendererHasIntel;
+      const hasIntelWord=/intel/.test(combinedLower);
+      const brandsMentionIntel=brandTokens.some(t=>/intel/i.test(t));
+      const suspiciousArm=/(arm|aarch|apple silicon|\bm[1-4]\b|snapdragon|qualcomm|mediatek|exynos|kirin|tensor|adreno|powervr|apple gpu)/.test(combinedLower);
+      const suspiciousAmd=/(amd|ryzen|radeon)/.test(combinedLower);
+      const looksMobile=/(android|iphone|ipad|mobile|tablet)/.test(combinedLower)||maxTouchPoints>3;
+      const hasTouch=maxTouchPoints>0;
+      const hardwareDesktop=hardwareConcurrency>=4&&deviceMemory>=4;
+
+      let score=0;
+      if(archIsX86) score+=3;
+      if(archFromPlatform) score+=2;
+      if(gpuLooksIntel) score+=6;
+      if(hasIntelWord) score+=2;
+      if(brandsMentionIntel) score+=1;
+      if(hardwareDesktop) score+=1;
+      if(!suspiciousArm) score+=1;
+      if(!looksMobile) score+=1;
+      if(pluginCount>0) score+=1;
+      if(!suspiciousAmd) score+=1;
+
+      let penalty=0;
+      if(!archIsX86&&!archFromPlatform) penalty+=2;
+      if(suspiciousArm) penalty+=5;
+      if(suspiciousAmd) penalty+=3;
+      if(looksMobile) penalty+=2;
+      if(hasTouch) penalty+=1;
+
+      const likelyIntel=gpuLooksIntel&&score-penalty>=7;
+
+      const metaLines=[
+        `UA: ${uastr}`,
+        `navigator.platform: ${legacyPlatform||"n/a"}`,
+        `navigator.oscpu: ${oscpu||"n/a"}`,
+        `navigator.vendor: ${vendorNav||"n/a"}`,
+        `navigator.hardwareConcurrency: ${hardwareConcurrency||"n/a"}`,
+        `navigator.deviceMemory: ${deviceMemory||"n/a"}`,
+        `navigator.maxTouchPoints: ${maxTouchPoints}`,
+        `navigator.plugins: ${pluginCount}`,
+        `navigator.languages: ${languages||"n/a"}`,
+        `CH.arch: ${arch||"n/a"}`,
+        `CH.bits: ${bitness||"n/a"}`,
+        `CH.platform: ${platformHint||"n/a"}`,
+        `CH.platformVersion: ${platformVersion||"n/a"}`,
+        `CH.model: ${model||"n/a"}`,
+        `CH.fullVersionList: ${brandTokens.join(" | ")||"n/a"}`,
+        `GPU.vendor: ${vendor||"n/a"}`,
+        `GPU.renderer: ${renderer||"n/a"}`
+      ].join("\n");
+
+      const passTokens=[];
+      const failTokens=[];
+      const archLabel=arch||legacyPlatform||"未知";
+      const gpuDescriptor=vendor||renderer||"未知GPU";
+      const hardwareSummary=`${hardwareConcurrency||"?"}线程/${deviceMemory?deviceMemory+"GB":"?GB"}`;
+
+      if(archIsX86||archFromPlatform){
+        passTokens.push(`架构:${archLabel}`);
+      }else{
+        failTokens.push(`架构异常:${archLabel}`);
+      }
+
+      if(gpuLooksIntel){
+        passTokens.push(`GPU:${shortText(gpuDescriptor)}`);
+      }else{
+        failTokens.push(`GPU非Intel:${shortText(gpuDescriptor)||"无数据"}`);
+      }
+
+      if(!suspiciousArm){
+        passTokens.push("无ARM痕迹");
+      }else{
+        failTokens.push("检测到ARM/非Intel特征");
+      }
+
+      if(!suspiciousAmd){
+        passTokens.push("无AMD痕迹");
+      }else{
+        failTokens.push("检测到AMD标记");
+      }
+
+      if(!looksMobile){
+        passTokens.push("非移动端特征");
+      }else{
+        failTokens.push("疑似移动设备");
+      }
+
+      if(hardwareDesktop){
+        passTokens.push(hardwareSummary);
+      }else{
+        failTokens.push(`硬件可疑:${hardwareSummary}`);
+      }
+
+      if(hasIntelWord||brandsMentionIntel){
+        passTokens.push("环境存在 Intel 字样");
+      }else{
+        failTokens.push("缺少 Intel 字样");
+      }
+
+      if(pluginCount>0){
+        passTokens.push(`插件:${pluginCount}`);
+      }
+
+      if(!failTokens.length){
+        failTokens.push("未满足 Intel 审核规则");
+      }
+
+      if(likelyIntel){
+        passTokens.forEach(t=>tag(passTags,t,"positive"));
+        passMeta.textContent=metaLines;
+        pass.classList.remove("hide");
+      }else{
+        failTokens.forEach(t=>tag(failTags,t,"negative"));
+        failMeta.textContent=metaLines;
+        fail.classList.remove("hide");
+      }
+    })();
   </script>
 </body>
 </html>
