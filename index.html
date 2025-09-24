@@ -1,0 +1,96 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Intel-only (soft gate)</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body{font-family:system-ui,Segoe UI,Roboto,Arial,sans-serif;margin:0;padding:40px;background:#0b0b10;color:#e8e8ec}
+    .card{max-width:720px;margin:auto;background:#14141d;border:1px solid #272733;border-radius:16px;padding:28px}
+    .ok{border-color:#2d7c2d;background:#112012}
+    .fail{border-color:#5a2630;background:#1a1012}
+    h1{margin:0 0 12px;font-size:22px}
+    p{margin:10px 0 0 0;line-height:1.6}
+    .meta{opacity:.7;font-size:13px;margin-top:10px;word-break:break-all}
+    .hide{display:none}
+    button{background:#2e2ee6;color:#fff;border:none;border-radius:10px;padding:10px 14px;font-weight:600;cursor:pointer;margin-top:16px}
+    .tag{display:inline-block;background:#22223a;border:1px solid #343456;border-radius:999px;padding:4px 10px;margin:6px 6px 0 0;font-size:12px;opacity:.9}
+  </style>
+</head>
+<body>
+  <div id="pass" class="card ok hide">
+    <h1>欢迎</h1>
+    <p>检测结果：似乎是 x86 且图形栈包含 Intel 线索，放行。</p>
+    <div id="passTags"></div>
+    <div id="passMeta" class="meta"></div>
+    <button onclick="location.href='/'">进入站点</button>
+  </div>
+
+  <div id="fail" class="card fail hide">
+    <h1>访问受限</h1>
+    <p>此站点仅在启发式判断为 “Intel 平台” 时放行。当前检测未通过。</p>
+    <div id="failTags"></div>
+    <div id="failMeta" class="meta"></div>
+    <button onclick="location.reload()">重新检测</button>
+  </div>
+
+  <script>
+    async function getUAHints(){
+      try{
+        if(navigator.userAgentData&&navigator.userAgentData.getHighEntropyValues){
+          const r=await navigator.userAgentData.getHighEntropyValues(["architecture","bitness","platform","platformVersion","fullVersionList","model"]);
+          return r
+        }
+      }catch(e){}
+      return null
+    }
+    function getWebGLRenderer(){
+      try{
+        const c=document.createElement("canvas")
+        const gl=c.getContext("webgl")||c.getContext("experimental-webgl")
+        if(!gl) return null
+        const ext=gl.getExtension("WEBGL_debug_renderer_info")
+        if(ext){
+          return gl.getParameter(ext.UNMASKED_RENDERER_WEBGL)
+        }
+        return gl.getParameter(gl.RENDERER)
+      }catch(e){return null}
+    }
+    function tag(el,txt){const s=document.createElement("span");s.className="tag";s.textContent=txt;el.appendChild(s)}
+    (async ()=>{
+      const pass=document.getElementById("pass")
+      const fail=document.getElementById("fail")
+      const passTags=document.getElementById("passTags")
+      const failTags=document.getElementById("failTags")
+      const passMeta=document.getElementById("passMeta")
+      const failMeta=document.getElementById("failMeta")
+
+      const hints=await getUAHints()
+      const arch=(hints&&hints.architecture)||""
+      const bitness=(hints&&hints.bitness)||""
+      const platform=(hints&&hints.platform)||""
+      const uastr=(navigator.userAgent||"")
+      const renderer=getWebGLRenderer()||""
+
+      let likelyIntel=false
+      const archIsX86=/^x86|x64|amd64|ia32$/i.test(arch)||/Win64|WOW64|x86_64|x64/i.test(uastr)
+      const rendererHasIntel=/intel/i.test(renderer)
+      if(archIsX86&&rendererHasIntel) likelyIntel=true
+
+      const meta=`UA: ${uastr}\nCH.arch: ${arch}\nCH.bits: ${bitness}\nCH.platform: ${platform}\nWebGL: ${renderer}`
+      if(likelyIntel){
+        tag(passTags,arch||"arch:unknown")
+        tag(passTags,bitness||"bits:?")
+        if(renderer) tag(passTags,renderer.slice(0,32))
+        passMeta.textContent=meta
+        pass.classList.remove("hide")
+      }else{
+        if(arch) tag(failTags,"arch:"+arch)
+        if(renderer) tag(failTags,renderer.slice(0,32))
+        failMeta.textContent=meta
+        fail.classList.remove("hide")
+      }
+    })()
+  </script>
+</body>
+</html>
